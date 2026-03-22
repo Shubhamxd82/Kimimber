@@ -211,7 +211,7 @@ class BombingSession:
                     "phone": phone
                 })
                 
-                await asyncio.sleep(0.001)  # Ultra-fast speed
+                await asyncio.sleep(random.uniform(2, 5))  # Ultra-fast speed
             
             except Exception as e:
                 self.stats["failed_attempts"] += 1
