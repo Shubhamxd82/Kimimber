@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phantom | API Testing Interface</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-card: #1a1a25;
+            --border-color: #2a2a3a;
+            --text-primary: #ffffff;
+            --text-secondary: #8b8b9a;
+            --accent-cyan: #00d4ff;
+            --accent-blue: #4f46e5;
+            --accent-purple: #7c3aed;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --accent-orange: #f59e0b;
+            --gradient-primary: linear-gradient(135deg, var(--accent-cyan) 0%, var(--accent-blue) 100%);
+            --shadow-glow: 0 0 20px rgba(0, 212, 255, 0.15);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+
+        .bg-grid {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                linear-gradient(rgba(0, 212, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 212, 255, 0.03) 1px, transparent 1px);
+            background-size: 60px 60px;
+            z-index: -1;
+        }
+
+        .bg-glow {
+            position: fixed;
+            top: 20%;
+            right: 10%;
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, rgba(0, 212, 255, 0.08) 0%, transparent 70%);
+            z-index: -1;
+            animation: float 20s ease-in-out infinite;
+        }
+
+        .bg-glow-2 {
+            position: fixed;
+            bottom: 10%;
+            left: 5%;
+            width: 500px;
+            height: 500px;
+            background: radial-gradient(circle, rgba(124, 58, 237, 0.06) 0%, transparent 70%);
+            z-index: -1;
+            animation: float 25s ease-in-out infinite reverse;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            50% { transform: translate(30px, -30px) scale(1.1); }
+        }
+
+        .header {
+            background: rgba(18, 18, 26, 0.8);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--border-color);
+            padding: 24px 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .logo {
+            width: 44px;
+            height: 44px;
+            background: var(--gradient-primary);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+            font-size: 1.4rem;
+            box-shadow: var(--shadow-glow);
+        }
+
+        .brand-text h1 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            background: var(--gradient-primary);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .brand-text p {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 18px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 0.85rem;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background: var(--accent-green);
+            border-radius: 50%;
+            box-shadow: 0 0 10px var(--accent-green);
+            animation: pulse-dot 2s infinite;
+        }
+
+        .status-dot.active {
+            background: var(--accent-red);
+            box-shadow: 0 0 10px var(--accent-red);
+        }
+
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(1.2); }
+        }
+
+        .api-count {
+            color: var(--accent-cyan);
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 500;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 32px 24px;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            margin-bottom: 24px;
+            overflow: hidden;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .card-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .card-title {
+            font-size: 1rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .card-title-icon {
+            color: var(--accent-cyan);
+            font-size: 1.2rem;
+        }
+
+        .card-badge {
+            padding: 6px 14px;
+            background: rgba(0, 212, 255, 0.1);
+            border: 1px solid rgba(0, 212, 255, 0.2);
+            border-radius: 6px;
+            font-size: 0.8rem;
+            color: var(--accent-cyan);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .card-badge.active {
+            background: rgba(16, 185, 129, 0.1);
+            border-color: rgba(16, 185, 129, 0.2);
+            color: var(--accent-green);
+        }
+
+        .card-body {
+            padding: 24px;
+        }
+
+        .target-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .target-field {
+            position: relative;
+        }
+
+        .target-field label {
+            display: block;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .target-input-wrapper {
+            position: relative;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 14px 16px;
+            transition: all 0.3s ease;
+        }
+
+        .target-input-wrapper:focus-within {
+            border-color: var(--accent-cyan);
+            box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.1);
+        }
+
+        .target-input-wrapper input {
+            width: 100%;
+            background: transparent;
+            border: none;
+            color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.1rem;
+            letter-spacing: 2px;
+            outline: none;
+        }
+
+        .target-input-wrapper input::placeholder {
+            color: #4a4a5a;
+        }
+
+        .target-number {
+            position: absolute;
+            top: -10px;
+            right: 12px;
+            background: var(--gradient-primary);
+            color: var(--bg-primary);
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            font-weight: 700;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 14px 28px;
+            border: none;
+            border-radius: 10px;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-secondary {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-secondary:hover {
+            background: var(--border-color);
+            border-color: var(--accent-cyan);
+            color: var(--accent-cyan);
+        }
+
+        .btn-primary {
+            background: var(--gradient-primary);
+            color: white;
+            box-shadow: var(--shadow-glow);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(0, 212, 255, 0.3);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, var(--accent-red) 0%, #dc2626 100%);
+            color: white;
+        }
+
+        .btn-danger:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(239, 68, 68, 0.3);
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 16px;
+        }
+
+        .stat-item {
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .stat-item:hover {
+            border-color: var(--accent-cyan);
+            transform: translateY(-3px);
+        }
+
+        .stat-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 6px;
+            transition: color 0.3s ease;
+        }
+
+        .stat-value.cyan { color: var(--accent-cyan); }
+        .stat-value.green { color: var(--accent-green); }
+        .stat-value.purple { color: var(--accent-purple); }
+        .stat-value.orange { color: var(--accent-orange); }
+        .stat-value.red { color: var(--accent-red); }
+        .stat-value.white { color: var(--text-primary); }
+
+        .stat-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .terminal {
+            background: #0d0d12;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            overflow: hidden;
+        }
+
+        .terminal-header {
+            background: var(--bg-secondary);
+            padding: 14px 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .terminal-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+
+        .terminal-dot.red { background: var(--accent-red); }
+        .terminal-dot.yellow { background: var(--accent-orange); }
+        .terminal-dot.green { background: var(--accent-green); }
+
+        .terminal-body {
+            padding: 20px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            line-height: 1.7;
+            max-height: 350px;
+            overflow-y: auto;
+        }
+
+        .log-entry {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 6px;
+            opacity: 0;
+            animation: fadeIn 0.4s ease forwards;
+        }
+
+        @keyframes fadeIn {
+            to { opacity: 1; }
+        }
+
+        .log-time {
+            color: #5a5a6a;
+            min-width: 75px;
+            font-size: 0.8rem;
+        }
+
+        .log-tag {
+            min-width: 85px;
+            padding: 3px 10px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-align: center;
+        }
+
+        .log-tag.info { 
+            background: rgba(0, 212, 255, 0.1); 
+            color: var(--accent-cyan); 
+        }
+        .log-tag.success { 
+            background: rgba(16, 185, 129, 0.1); 
+            color: var(--accent-green); 
+        }
+        .log-tag.error { 
+            background: rgba(239, 68, 68, 0.1); 
+            color: var(--accent-red); 
+        }
+        .log-tag.call { 
+            background: rgba(0, 212, 255, 0.1); 
+            color: var(--accent-cyan); 
+        }
+        .log-tag.whatsapp { 
+            background: rgba(124, 58, 237, 0.1); 
+            color: var(--accent-purple); 
+        }
+        .log-tag.sms { 
+            background: rgba(245, 158, 11, 0.1); 
+            color: var(--accent-orange); 
+        }
+
+        .log-message {
+            color: #c0c0d0;
+            flex: 1;
+        }
+
+        .footer {
+            margin-top: 32px;
+            padding: 20px 24px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .footer-text {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .footer-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            border-radius: 8px;
+            font-size: 0.8rem;
+            color: var(--accent-red);
+        }
+
+        @media (max-width: 968px) {
+            .stats-grid { grid-template-columns: repeat(3, 1fr); }
+            .target-grid { grid-template-columns: 1fr; }
+            .header-content { flex-direction: column; gap: 16px; }
+            .btn-group { flex-direction: column; }
+            .btn { width: 100%; justify-content: center; }
+        }
+
+        @media (max-width: 640px) {
+            .stats-grid { grid-template-columns: repeat(2, 1fr); }
+            .footer { flex-direction: column; gap: 12px; text-align: center; }
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-primary);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--accent-cyan);
+        }
+
+        .toast {
+            position: fixed;
+            top: 100px;
+            right: 24px;
+            padding: 16px 24px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+            z-index: 1000;
+            transform: translateX(400px);
+            transition: transform 0.3s ease;
+        }
+
+        .toast.show {
+            transform: translateX(0);
+        }
+
+        .toast.success {
+            border-color: var(--accent-green);
+        }
+
+        .toast.error {
+            border-color: var(--accent-red);
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-grid"></div>
+    <div class="bg-glow"></div>
+    <div class="bg-glow-2"></div>
+
+    <header class="header">
+        <div class="header-content">
+            <div class="brand">
+                <div class="logo">P</div>
+                <div class="brand-text">
+                    <h1>Phantom</h1>
+                    <p>API Testing Interface v3.0</p>
+                </div>
+            </div>
+            <div class="status-badge">
+                <div class="status-dot" id="statusDot"></div>
+                <span id="statusText">System Online</span>
+                <span class="api-count">• {{ api_count }} APIs Active</span>
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+        <!-- Target Section -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">
+                    <span class="card-title-icon">🎯</span>
+                    Target Configuration
+                </div>
+                <div class="card-badge" id="targetBadge">Max 10 Targets</div>
+            </div>
+            <div class="card-body">
+                <div class="target-grid" id="targetGrid">
+                    <div class="target-field">
+                        <label>Target 01</label>
+                        <div class="target-input-wrapper">
+                            <span class="target-number">1</span>
+                            <input type="tel" class="phone-input" id="phone1" placeholder="9876543210" maxlength="10">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="btn-group">
+                    <button class="btn btn-secondary" onclick="addTarget()">
+                        <span>+</span> Add Target
+                    </button>
+                    <button class="btn btn-primary" id="startBtn" onclick="startTest()">
+                        <span>▶</span> Start Test
+                    </button>
+                    <button class="btn btn-danger" id="stopBtn" onclick="stopTest()" style="display:none;">
+                        <span>■</span> Stop Test
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stats Section -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">
+                    <span class="card-title-icon">📊</span>
+                    Live Metrics
+                </div>
+                <div class="card-badge" id="statusBadge">Idle</div>
+            </div>
+            <div class="card-body">
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <div class="stat-value cyan" id="statTotal">0</div>
+                        <div class="stat-label">Total Requests</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value green" id="statSuccess">0</div>
+                        <div class="stat-label">Successful</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value cyan" id="statCalls">0</div>
+                        <div class="stat-label">Voice Calls</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value purple" id="statWA">0</div>
+                        <div class="stat-label">WhatsApp</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value orange" id="statSMS">0</div>
+                        <div class="stat-label">SMS</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value red" id="statFailed">0</div>
+                        <div class="stat-label">Failed</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Terminal -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">
+                    <span class="card-title-icon">🖥️</span>
+                    Operation Log
+                </div>
+                <div class="card-badge" id="logBadge">Live</div>
+            </div>
+            <div class="card-body" style="padding: 0;">
+                <div class="terminal">
+                    <div class="terminal-header">
+                        <div class="terminal-dot red"></div>
+                        <div class="terminal-dot yellow"></div>
+                        <div class="terminal-dot green"></div>
+                        <span style="margin-left: 10px; color: var(--text-secondary); font-size: 0.85rem;">phantom@system:~</span>
+                    </div>
+                    <div class="terminal-body" id="terminalBody">
+                        <div class="log-entry">
+                            <span class="log-time" id="startTime">--:--:--</span>
+                            <span class="log-tag info">INFO</span>
+                            <span class="log-message">Phantom API Tester initialized. Ready for targets.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <div class="footer-text">
+                ⚡ Multi-Target Support • Real-time WebSocket • 90+ APIs Loaded
+            </div>
+            <div class="footer-badge">
+                <span>🔴</span> Educational Use Only
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        let ws = null;
+        let targetCount = 1;
+        let isRunning = false;
+
+        // WebSocket Connection
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+            
+            ws.onopen = function() {
+                log('WebSocket connected', 'info');
+            };
+            
+            ws.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                handleMessage(data);
+            };
+            
+            ws.onclose = function() {
+                log('WebSocket disconnected. Retrying...', 'error');
+                setTimeout(connectWebSocket, 3000);
+            };
+            
+            ws.onerror = function(error) {
+                log('WebSocket error', 'error');
+            };
+        }
+
+        function handleMessage(data) {
+            if (data.type === 'log') {
+                addLog(data.message, data.tag);
+                updateStats(data.stats);
+            } else if (data.type === 'error') {
+                showToast(data.message, 'error');
+                addLog(data.message, 'error');
+            } else if (data.type === 'info') {
+                addLog(data.message, 'info');
+                if (data.stats) updateStats(data.stats);
+            } else if (data.type === 'status') {
+                updateStats(data.stats);
+            }
+            
+            if (data.stopped) {
+                isRunning = false;
+                updateUIState();
+            }
+        }
+
+        function addTarget() {
+            if (targetCount >= 10) {
+                showToast('Maximum 10 targets allowed!', 'error');
+                return;
+            }
+            
+            targetCount++;
+            const grid = document.getElementById('targetGrid');
+            const div = document.createElement('div');
+            div.className = 'target-field';
+            div.innerHTML = `
+                <label>Target ${targetCount.toString().padStart(2, '0')}</label>
+                <div class="target-input-wrapper">
+                    <span class="target-number">${targetCount}</span>
+                    <input type="tel" class="phone-input" id="phone${targetCount}" placeholder="9876543210" maxlength="10">
+                </div>
+            `;
+            grid.appendChild(div);
+            
+            // Animate
+            div.style.opacity = '0';
+            div.style.transform = 'translateY(-10px)';
+            setTimeout(() => {
+                div.style.transition = 'all 0.3s ease';
+                div.style.opacity = '1';
+                div.style.transform = 'translateY(0)';
+            }, 10);
+        }
+
+        function getPhones() {
+            const phones = [];
+            for (let i = 1; i <= targetCount; i++) {
+                const val = document.getElementById(`phone${i}`)?.value.trim();
+                if (val && val.length === 10 && /^\d+$/.test(val)) {
+                    phones.push(val);
+                }
+            }
+            return phones;
+        }
+
+        function startTest() {
+            const phones = getPhones();
+            
+            if (phones.length === 0) {
+                showToast('Please enter at least one valid 10-digit phone number!', 'error');
+                return;
+            }
+            
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                showToast('WebSocket not connected. Please wait...', 'error');
+                return;
+            }
+            
+            isRunning = true;
+            updateUIState();
+            
+            ws.send(JSON.stringify({
+                action: 'start',
+                phones: phones
+            }));
+            
+            showToast(`🚀 Starting bombing on ${phones.length} targets!`, 'success');
+        }
+
+        function stopTest() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            
+            ws.send(JSON.stringify({
+                action: 'stop'
+            }));
+            
+            showToast('🛑 Stopping attack...', 'error');
+        }
+
+        function updateUIState() {
+            const startBtn = document.getElementById('startBtn');
+            const stopBtn = document.getElementById('stopBtn');
+            const statusBadge = document.getElementById('statusBadge');
+            const statusDot = document.getElementById('statusDot');
+            
+            if (isRunning) {
+                startBtn.style.display = 'none';
+                stopBtn.style.display = 'inline-flex';
+                statusBadge.textContent = 'ACTIVE';
+                statusBadge.className = 'card-badge active';
+                statusDot.classList.add('active');
+                document.getElementById('statusText').textContent = 'Attack Running';
+            } else {
+                startBtn.style.display = 'inline-flex';
+                stopBtn.style.display = 'none';
+                statusBadge.textContent = 'Idle';
+                statusBadge.className = 'card-badge';
+                statusDot.classList.remove('active');
+                document.getElementById('statusText').textContent = 'System Online';
+            }
+        }
+
+        function updateStats(stats) {
+            document.getElementById('statTotal').textContent = stats.total_requests.toLocaleString();
+            document.getElementById('statSuccess').textContent = stats.successful_hits.toLocaleString();
+            document.getElementById('statCalls').textContent = stats.calls_sent.toLocaleString();
+            document.getElementById('statWA').textContent = stats.whatsapp_sent.toLocaleString();
+            document.getElementById('statSMS').textContent = stats.sms_sent.toLocaleString();
+            document.getElementById('statFailed').textContent = stats.failed_attempts.toLocaleString();
+        }
+
+        function addLog(message, tag = 'info') {
+            const terminal = document.getElementById('terminalBody');
+            const time = new Date().toLocaleTimeString('en-US', { hour12: false });
+            
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.innerHTML = `
+                <span class="log-time">${time}</span>
+                <span class="log-tag ${tag}">${tag.toUpperCase()}</span>
+                <span class="log-message">${message}</span>
+            `;
+            
+            terminal.appendChild(entry);
+            terminal.scrollTop = terminal.scrollHeight;
+            
+            // Keep only last 100 logs
+            while (terminal.children.length > 100) {
+                terminal.removeChild(terminal.firstChild);
+            }
+        }
+
+        function log(message, tag = 'info') {
+            addLog(message, tag);
+        }
+
+        function showToast(message, type = 'info') {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = `toast ${type} show`;
+            
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
+
+        // Initialize
+        window.onload = function() {
+            document.getElementById('startTime').textContent = new Date().toLocaleTimeString('en-US', { hour12: false });
+            connectWebSocket();
+        };
+
+        // Enter key support
+        document.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !isRunning) {
+                startTest();
+            }
+        });
+    </script>
+</body>
+</html>
