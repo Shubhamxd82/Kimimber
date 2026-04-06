@@ -229,9 +229,12 @@ class BombingSession:
 @app.get("/")
 async def home(request: Request):
     return templates.TemplateResponse("index.html", {
-        "request": request, 
-        "api_count": len(ULTIMATE_APIS)
-    })
+    "request": request,
+    "api_count": len(ULTIMATE_APIS),
+    "stats": {},
+    "phones": [],
+    "message": ""
+})
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
