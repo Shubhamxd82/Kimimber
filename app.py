@@ -8,6 +8,7 @@ import aiohttp
 import time
 import random
 import json
+import os
 from typing import List, Dict, Optional
 from pydantic import BaseModel
 import uvicorn
@@ -15,8 +16,10 @@ import uvicorn
 app = FastAPI(title="Phantom API Tester", version="4.0 FAST")
 
 # Static files aur templates setup
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
+templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
 # Connected WebSocket clients
 class ConnectionManager:
